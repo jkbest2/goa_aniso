@@ -64,4 +64,4 @@ goa_arrowtooth <- goa_bts |>
              by = c("STATION", "DATETIME")) |>
   mutate(WTCPUE = replace_na(WTCPUE, 0)) |>
   st_sf()
-write_rds("goa_arrowtooth", "data/goa_arrowtooth.rds")
+write_rds(goa_arrowtooth, "data/goa_arrowtooth.rds")
