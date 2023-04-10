@@ -65,3 +65,12 @@ goa_arrowtooth <- goa_bts |>
   mutate(WTCPUE = replace_na(WTCPUE, 0)) |>
   st_sf()
 write_rds(goa_arrowtooth, "data/goa_arrowtooth.rds")
+
+## New code demonstrating getting a tighter polygon around the catch locations
+## using a concave hull (new in updated version of GEOS and sf)
+st_use_s2(FALSE)
+st_concave_hull(st_combine(goa_arrowtooth), ratio = 0.075, allow_holes = TRUE) |>
+  st_buffer(dist = 10e3, nQuadSegs = 1e10) |>
+  ggplot() +
+  geom_sf() +
+  geom_sf(data = goa_arrowtooth)

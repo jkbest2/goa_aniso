@@ -134,7 +134,7 @@ tt <- tri_df |>
   st_drop_geometry() |>
   transmute(center = center,
             theta = asp90,
-            beta = slope * 10,
+            beta = slope * 50,
             rho = 20e3)
 tri_ells <- map(seq_len(nrow(tt)),
                 \(r) aniso_poly(tt$center[r],
@@ -144,7 +144,15 @@ tri_ells <- map(seq_len(nrow(tt)),
   st_sfc(crs = utm_crs) |>
   st_sf()
 
+ak_state <- ne_states("united states of america", returnclass = "sf") |>
+  filter(name == "Alaska")
+
+tri_bbox <- st_bbox(tri_ells)
+
 tri_ells |>
-  slice_sample(n = 100) |>
+  ## slice_sample(n = 250) |>
 ggplot() +
-  geom_sf(fill = NA)
+  geom_sf(data = ak_state, color = "darkred") +
+  geom_sf(fill = NA) +
+  coord_sf(xlim = tri_bbox[c(1, 3)],
+           ylim = tri_bbox[c(2, 4)])
