@@ -4,7 +4,6 @@ library(sf)
 library(terra)
 ## Other raster library, interfaces nicely with `sf`
 library(stars)
-library(starsExtra)
 ## For downloading bathymetry data from NOAA
 library(marmap)
 ## Shapefiles for coastlines
@@ -17,12 +16,24 @@ source("10_data_funs.R")
 ## utm_crs <- st_crs("+proj=utm +zone=6 ellps=WGS84")
 crs <- st_crs(3338)
 
+## Buffer distance: used to crop the raster down to the area that matters and to
+## enlarge the area of the mesh triangles when extracting slope and aspect
+## values, smoothing them somewhat over adjacent triangles.
+buffer_dist <- 10e3
+
 ## Get the bounding box of the mesh so that we have bathymetry covering all
 ## triangles in the mesh; use `round_out` to ensure we don't miss anything on
 ## the edges.
 mesh_pt <- read_rds("data/mesh_pt.rds")
+## Need to transform to 4326 (lat/long) here for `getNOAA.bathy`
 mesh_bbox <- st_bbox(st_transform(mesh_pt, st_crs(4326))) |>
   round_out(center = c(Inf, Inf, -Inf, -Inf))
+## Warping the bathymetry raster below is cropping the southern end of the
+## raster too much, losing part of the mesh. Need to go further south to cover
+## the mesh after warping. The extra raster will be cropped later (before slope
+## and aspect are computed), so this doesn't introduce a lot of extra
+## computation.
+mesh_bbox[2] <- mesh_bbox[2] - 1
 
 ## Download bathymetry from NOAA and save for re-use. NOTE reducing the
 ## resolution here would be another way to smooth out small-scale variation.
@@ -183,30 +194,33 @@ terrplot <- ggplot() +
 ##              dfr$slope * 50,
 ##              rho = 20e3)
 ## }
-tt <- tri_df |>
-  mutate(center = st_centroid(geometry)) |>
-  st_drop_geometry() |>
-  transmute(center = center,
-            theta = asp90,
-            beta = slope * 50,
-            rho = 20e3)
-tri_ells <- map(seq_len(nrow(tt)),
-                \(r) aniso_poly(tt$center[r],
-                                tt$theta[r],
-                                tt$beta[r],
-                                tt$rho[r])) |>
-  st_sfc(crs = utm_crs) |>
-  st_sf()
+## tt <- tri_df |>
+##   mutate(center = st_centroid(mesh_tri)) |>
+##   st_drop_geometry() |>
+##   transmute(center = center,
+##             theta = asp90,
+##             beta = slope * 50,
+##             rho = 20e3)
+## tri_ells <- map(seq_len(nrow(tt)),
+##                 \(r) aniso_poly(tt$center[r],
+##                                 tt$theta[r],
+##                                 tt$beta[r],
+##                                 tt$rho[r])) |>
+##   st_sfc(crs = crs) |>
+##   st_sf()
 
-ak_state <- ne_states("united states of america", returnclass = "sf") |>
-  filter(name == "Alaska")
+## ak_state <- ne_states("united states of america", returnclass = "sf") |>
+##   filter(name == "Alaska")
 
-tri_bbox <- st_bbox(tri_ells)
+## tri_bbox <- st_bbox(tri_ells)
 
-tri_ells |>
-  ## slice_sample(n = 250) |>
-ggplot() +
-  geom_sf(data = ak_state, color = "darkred") +
-  geom_sf(fill = NA) +
-  coord_sf(xlim = tri_bbox[c(1, 3)],
-           ylim = tri_bbox[c(2, 4)])
+## bound_df <- read_rds("data/bound_df.rds")
+
+## tri_ells |>
+##   slice_sample(n = 500) |>
+## ggplot() +
+##   geom_sf(data = ak_state, color = "darkred") +
+##   geom_sf(fill = NA) +
+##   geom_sf(data = bound_df, fill = NA, color = "darkblue") +
+##   coord_sf(xlim = tri_bbox[c(1, 3)],
+##            ylim = tri_bbox[c(2, 4)])
