@@ -37,15 +37,11 @@ mesh_pt <- map(seq_len(mesh$n), \(i) st_point(mesh$loc[i, 1:2])) |>
   st_sfc(crs = crs)
 write_rds(mesh_pt, "data/mesh_pt.rds")
 
-## Create a boundary polygon. Currently using a convex hull around the mesh
-## points. Using a buffer around the points doesn't work great (ends up with
-## lots of circles unless it's a large buffer). But if we want a buffer we can
-## buffer around the *convex hull* rather than around the points.
-bound <- st_combine(mesh_pt) |>
-  st_convex_hull()
-  ## st_buffer(200e3)
-write_rds(bound, "data/bound.rds")
-bound_df <- st_sf(bound, crs = crs)
+## Use the concave hull around the bottom trawl survey with a 10km
+## buffer for good measure.
+bound_df <- st_sf(hull, crs = crs) |>
+  st_buffer(dist = 10e3)
+write_rds(bound_df, "data/bound_df.rds")
 
 ## Create an `sf` dataframe with mesh vertices as features and an index column
 ## so that voronoi polygons can be associated back to corresponding vertices.
@@ -86,3 +82,7 @@ mesh_tri <- map(seq_len(nrow(mesh$graph$tv)),
   ## st_sfc(crs = st_crs("+proj=utm +zone=6 ellps=WGS84"))
   st_sfc(crs = crs)
 write_rds(mesh_tri, "data/mesh_tri.rds")
+
+mesh_outerbound <- mesh_tri |>
+  st_union()
+write_rds(mesh_outerbound, "data/mesh_outerbound.rds")

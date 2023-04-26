@@ -69,11 +69,23 @@ goa_arrowtooth <- goa_bts |>
   st_sf()
 write_rds(goa_arrowtooth, "data/goa_arrowtooth.rds")
 
-## New code demonstrating getting a tighter polygon around the catch locations
-## using a concave hull (new in updated version of GEOS and sf)
-st_use_s2(FALSE)
-st_concave_hull(st_combine(goa_arrowtooth), ratio = 0.075, allow_holes = TRUE) |>
-  st_buffer(dist = 10e3, nQuadSegs = 1e10) |>
-  ggplot() +
-  geom_sf() +
-  geom_sf(data = goa_arrowtooth)
+## Use the new `st_concave_hull` function to get a tighter polygon around the
+## catch locations using a concave hull (requires updated version of GEOS and
+## sf)
+goa_hauls_hull <- st_concave_hull(st_combine(goa_hauls),
+                                  ratio = 0.075,
+                                  allow_holes = TRUE)
+## Consider subtracting the non-marine areas of the map from the concave hull
+ak_state <- rnaturalearth::ne_states("united states of america",
+                                     returnclass = "sf") |>
+  filter(name == "Alaska") |>
+  st_transform(crs)
+goa_hauls_hull <- st_difference(goa_hauls_hull, ak_state)
+write_rds(goa_hauls_hull, "data/goa_hauls_hull.rds")
+
+### Plot of haul locations and the concave hull.
+## goa_hauls_hull |>
+##   ## st_buffer(dist = 10e3, nQuadSegs = 1e10) |>
+##   ggplot() +
+##   geom_sf() +
+##   geom_sf(data = goa_hauls)
