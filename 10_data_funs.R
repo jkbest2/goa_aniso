@@ -34,31 +34,31 @@ aspect_from_dz <- function(dz) {
   az
 }
 
-## Calculate H anisotropy matrix
-det1_gamma <- function(beta) {
-  1/2 * (sqrt(beta^2 + 4) - beta)
-}
+## ## Calculate H anisotropy matrix
+## det1_gamma <- function(beta) {
+##   1/2 * (sqrt(beta^2 + 4) - beta)
+## }
 
-# Construct anisotropy matrix
-aniso_h <- function(theta, beta, gamma = NULL, det1 = TRUE) {
-  if (is.null(gamma) && det1) {
-    gamma <- det1_gamma(beta)
-  }
-  if (is.null(gamma)) {
-    stop("Need a value for gamma")
-  }
-  beta >= 0 || stop("Need beta > 0")
-  gamma > 0 || stop("Need gamma > 0")
-  v <- c(cos(theta), sin(theta))
-  diag(c(gamma, gamma)) + beta * v %*% t(v)
-}
+## # Construct anisotropy matrix
+## aniso_h <- function(theta, beta, gamma = NULL, det1 = TRUE) {
+##   if (is.null(gamma) && det1) {
+##     gamma <- det1_gamma(beta)
+##   }
+##   if (is.null(gamma)) {
+##     stop("Need a value for gamma")
+##   }
+##   beta >= 0 || stop("Need beta > 0")
+##   gamma > 0 || stop("Need gamma > 0")
+##   v <- c(cos(theta), sin(theta))
+##   diag(c(gamma, gamma)) + beta * v %*% t(v)
+## }
 
-aniso_poly <- function(center, theta, beta, rho) {
-  if (inherits(center, "sfc_POINT")) center <- c(st_coordinates(center))
-  H <- aniso_h(theta, beta)
-  a <- t(seq(0, 2 * pi, length.out = 257))
-  a[257] <- a[1]
-  xy <- rbind(cos(a), sin(a))
-  ell <- rho * H %*% xy
-  st_polygon(list(t(ell + center)))
-}
+## aniso_poly <- function(center, theta, beta, rho) {
+##   if (inherits(center, "sfc_POINT")) center <- c(st_coordinates(center))
+##   H <- aniso_h(theta, beta)
+##   a <- t(seq(0, 2 * pi, length.out = 257))
+##   a[257] <- a[1]
+##   xy <- rbind(cos(a), sin(a))
+##   ell <- rho * H %*% xy
+##   st_polygon(list(t(ell + center)))
+## }
