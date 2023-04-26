@@ -138,9 +138,10 @@ tri_df <- extract(goa_terrain, mesh_tri_sv) |>
             aspect = mean_aspect(aspect, w = slope),
             .groups = "drop") |>
   mutate(asp90 = aspect + pi / 2,
-         ## Make sure all angles are in [-pi, pi]
-         aspect = atan2(sin(aspect), cos(aspect)),
-         asp90 = atan2(sin(asp90), cos(asp90))) |>
+         ## Make sure all angles are in [-pi/2, pi/2] because the major axis
+         ## orientation matters, not the absolute direction.
+         aspect = asin(sin(aspect)),
+         asp90 = asin(sin(asp90))) |>
   st_sf(geometry = mesh_tri)
 write_rds(tri_df, "data/tri_df.rds")
 
