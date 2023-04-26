@@ -14,7 +14,8 @@ library(cmocean)
 
 source("10_data_funs.R")
 
-utm_crs <- st_crs("+proj=utm +zone=6 ellps=WGS84")
+## utm_crs <- st_crs("+proj=utm +zone=6 ellps=WGS84")
+crs <- st_crs(3338)
 
 ## Get the bounding box of the mesh so that we have bathymetry covering all
 ## triangles in the mesh; use `round_out` to ensure we don't miss anything on
@@ -48,80 +49,133 @@ goa_df <- as_tibble(goa_ba2) %>%
                names_transform = as.numeric,
                values_to = "elev")
 
-goa_st <- st_as_stars(goa_df) |>
-  st_set_crs(st_crs(4326))
+goa2 <- st_as_stars(goa_df)
+
+## goa_st <- st_as_stars(goa_df) |>
+##   st_set_crs(st_crs(4326))
 
 ## goa <- st_as_stars(goa_df) %>%
 ##   st_set_crs(4326) %>%
 ##   st_transform(crs = st_crs("+proj=utm +zone=6 ellps=WGS84"))
 
-## goa_te <- rast(goa_df, crs = "+proj=lonlat")
-## goa_te_slope <- terrain(goa_te, "slope", unit = "radians", neighbors = 8)
-## goa_te_aspect <- terrain(goa_te, "aspect", unit = "radians", neighbors = 8)
-
-## goa_st <- st_as_stars(goa_te) %>%
-##   st_transform(utm_crs)
-## goa_st_slope <- st_as_stars(goa_te_slope) %>%
-##   st_transform(utm_crs)
-## goa_st_aspect <- st_as_stars(goa_te_aspect) %>%
-##   st_transform(utm_crs)
-
-## ## Get a polygon of Alaska to delineate coastal areas etc
-## ak_coast <- ne_states("united states of america", returnclass = "sf") %>%
-##   filter(name == "Alaska") %>%
-##   st_transform(utm_crs) %>%
-##   st_crop(goa_utm) %>%
-##   sf:::select.sf(name)
-##
-
-## goa_utm <- st_transform(goa_st, utm_crs)
-
-## st_extract(goa_utm, at = mesh_pt[2345])
-
-mesh <- read_rds("data/mesh.rds")
-
-## Transform to lat/long so that the mesh vertices match the projection of the
-## bathymetry.
-mesh_ll <- st_transform(mesh_pt, st_crs(4326))
-
-mesh_elev <- st_extract(goa_st, mesh_ll) |>
-  st_transform(utm_crs)
-
-mesh_coords <- cbind(st_coordinates(mesh_elev), mesh_elev$elev)
-
-## A function that calculates the vector normal to the triangle formed by the
-## coordinates, including elevation.
-tri_normvecs <- map(seq_len(nrow(mesh$graph$tv)),
-    \(i) {
-      tris <- mesh$graph$tv[i, ]
-      norm_vec(mesh_coords[tris[1], ],
-               mesh_coords[tris[2], ],
-               mesh_coords[tris[3], ])
-    })
-
-
-tri_dz <- map(tri_normvecs, dz_from_normvec)
-tri_dznorm <- map_dbl(tri_dz, norm, type = "2")
-
-tri_asp <- map_dbl(tri_dz, aspect_from_dz)
-
 mesh_tri <- read_rds("data/mesh_tri.rds")
-tri_df <- tibble(geometry = mesh_tri,
-       slope = tri_dznorm,
-       aspect = tri_asp,
-       asp_deg = 180 * aspect / pi,
-       asp90 = aspect + pi / 2) |>
-  st_sf()
+mesh_outerbound <- read_rds("data/mesh_outerbound.rds")
+
+## A function to take the mean of directional observations, as suggested in this
+## GIS StackExchange answer: https://gis.stackexchange.com/a/147135. Expects
+## aspects in radians. `w` argument is optional weights. `w` must be either
+## length 1 or the same length as `asp`. `w` is normalized.
+mean_aspect <- function(asp, w = 1) {
+  if (length(w) != 1 && length(w) != length(asp))
+      stop("w must be length 1 or same length as asp")
+  ## Normalize the weights
+  if (length(w) > 1)
+      w <- w / mean(w)
+  xs <- w * cos(asp)
+  ys <- w * sin(asp)
+  atan2(sum(ys), sum(xs))
+}
+
+## Convert to `terra` package objects. Need to use lat/long to get regular
+## raster for `terrain` function
+## mesh_tri_sv <- vect(st_transform(mesh_tri, st_crs(4326)))
+## goa_te <- rast(goa_st)
+
+## Using st_transform to go from lat-long to UTM gives a curvilinear raster,
+## which the `terrain` function can't handle. So instead resample the raster to
+## a regular grid on UTM using st_warp. This results in lots of missing pixels,
+## but not in any areas we care about. It also crops out some of the southern
+## areas, but a quick plot shows that the raster still covers the mesh
+## completely.
+goa_bathy <- st_as_stars(goa_df) |>
+  st_set_crs(4326) |>
+  st_warp(crs = crs) |>
+  ## Need to buffer when cropping, or you get missing values in the `terrain`
+  ## calculations later on.
+  st_crop(st_buffer(mesh_outerbound, buffer_dist + 10e3))
+### Plot to double check that mesh is completely covered by the warped raster
+## ggplot() +
+##   geom_stars(data = goa_bathy) +
+##   geom_sf(data = mesh_tri, fill = NA)
+
+write_rds(goa_bathy, "data/goa_bathy.rds")
+goa_te <- rast(goa_bathy)
+
+## Convert the mesh triangles to a `terra` vector object so that they can be
+## used in `extract` below. Don't need to transform coordinate systems now that
+## the raster is `warp`ed
+mesh_tri_sv <- mesh_tri |>
+  st_buffer(dist = buffer_dist) |>
+  vect()
+
+## Calculate the slope and aspect. Use radians so that calculating mean aspect
+## (function above) is straightforward. Slope units will be relative anyway,
+## though it might be worth considering using grade as a percent rather than
+## radians or degrees here, though that is a nonlinear tranformation.
+goa_terrain <- terrain(goa_te, v = c("slope", "aspect"), unit = "radians")
+
+tri_df <- extract(goa_terrain, mesh_tri_sv) |>
+  group_by(ID) |>
+  ## Use percent gradient as slope measure rather than radians
+  mutate(slope = tan(slope)) |>
+  summarize(slope = mean(slope),
+            ## Weight aspect mean calculation by slope. Aspects of higher slopes
+            ## should have more effect. Also removes any 90° slopes in areas
+            ## with zero slope.
+            aspect = mean_aspect(aspect, w = slope),
+            .groups = "drop") |>
+  mutate(asp90 = aspect + pi / 2,
+         ## Make sure all angles are in [-pi, pi]
+         aspect = atan2(sin(aspect), cos(aspect)),
+         asp90 = atan2(sin(asp90), cos(asp90))) |>
+  st_sf(geometry = mesh_tri)
 write_rds(tri_df, "data/tri_df.rds")
 
-tri_df |>
-  ggplot() +
-  geom_sf(aes(fill = asp90, alpha = slope), color = NA) +
-  scale_fill_cmocean(name = "phase") +
-  scale_alpha_continuous()
+### Plots for checking slope and aspects
+terrplot <- ggplot() +
+  geom_sf(aes(fill = aspect, alpha = slope),
+          data = tri_df,
+          color = NA) +
+  scale_fill_cmocean(name = "phase")
 
-data <- list(slope = tri_df$slope,
-             theta = tri_df$asp90)
+## slope_scale <- 5e5
+## tri_vecs <- tri_df |>
+##   st_centroid() |>
+##   mutate(ctr.X = st_coordinates(mesh_tri)[, 1],
+##          ctr.Y = st_coordinates(mesh_tri)[, 2],
+##          slope = slope * slope_scale,
+##          end.X = ctr.X + slope * cos(asp90),
+##          end.Y = ctr.Y + slope * sin(asp90)) |>
+##   rowwise() |>
+##   mutate(lsmat = list(matrix(c(ctr.X, end.X, ctr.Y, end.Y), nrow = 2)),
+##          geometry = st_sfc(st_linestring(lsmat))) |>
+##   st_sf(sf_column_name = "geometry", crs = crs)
+
+## ggplot() + geom_sf(data = tri_vecs)
+
+## terrplot +
+##   geom_sf(data = tri_vecs)
+
+## ggplot() +
+##   geom_stars(data = goa_bathy) +
+##   geom_sf(data = mesh_tri, fill = NA) +
+##   geom_sf(data = tri_vecs) +
+##   ggtitle("UTM") +
+##   guides(fill = "none")
+
+## tri_df |>
+##   mutate(asp_cl = atan2(sin(aspect), cos(aspect)),
+##          asp_cut = cut(asp_cl, seq(-pi, pi, length.out = 8)),
+##          asp90_cl = atan2(sin(asp90), cos(asp90)),
+##          asp90_cut = cut(asp90_cl, seq(-pi, pi, length.out = 6))) |>
+##   ggplot() +
+##   geom_sf(aes(fill = asp_cut), color = NA, alpha = 0.8) +#, alpha = slope), color = NA) +
+##   scale_fill_cmocean(name = "phase", discrete = TRUE) +
+##   scale_alpha_continuous() +
+##   geom_sf(data = ak_state)
+
+## data <- list(slope = tri_df$slope,
+##              theta = tri_df$asp90)
 
 ## ell_poly <- function(dfr) {
 ##   aniso_poly(st_coordinates(dfr$center),

@@ -1,6 +1,8 @@
 library(tidyverse)
 library(sf)
 
+crs <- st_crs(3338)
+
 ## Download the survey data into a temporary directory
 goa_bts_files <- c("goa1984_1987.zip",
                    "goa1990_1999.zip",
@@ -47,7 +49,8 @@ goa_bts <- map_df(
          !is.na(LONGITUDE)) |>
   st_as_sf(coords = c("LONGITUDE",
                       "LATITUDE"),
-           crs = st_crs(4326))
+           crs = st_crs(4326)) |>
+  st_transform(crs)
 write_rds(goa_bts, "data/goa_bts.rds")
 
 goa_hauls <- goa_bts |>

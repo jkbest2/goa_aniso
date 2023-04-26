@@ -2,24 +2,30 @@ library(tidyverse)
 library(sf)
 library(INLA)
 
-crs <- st_crs("+proj=utm +zone=6 +datum=WGS84")
+## crs <- st_crs("+proj=utm +zone=6 +datum=WGS84")
+crs <- st_crs(3338)
 
 locs <- read_rds("data/goa_bts.rds")|>
   select() |>
   distinct() |>
-  st_transform(st_crs("+proj=utm +zone=6 ellps=WGS84")) |>
+  st_transform(crs) |>
   st_coordinates()
+
+hull <- read_rds("data/goa_hauls_hull.rds") |>
+  st_transform(crs)
 
 ## Create mesh; resolution will probably be important as it also determines how
 ## fine the gradients for the anisotropy field are calculated, though it is
-## possible to decouple these later on.
+## possible to decouple these later on. The primary parameter that determines
+## the number of mesh points is the `cutoff`. At 25e3 we get roughly 700
+## vertices, at 20e3 we get 950, increasing as the cutoff decreases.
 mesh <- inla.mesh.2d(locs,
-                     ## boundary = hull,
+                     boundary = as(hull, "Spatial"),
                      offset = c(1e3, 250e3),
                      max.edge = c(10e3, 200e3),
                      max.n = 1000,
                      min.angle = c(30, 21),
-                     cutoff = 25e3)
+                     cutoff = 20e3)
                      ## update to `sp` package throws errors here; will deal with
                      ## CRS outside of INLA
                      ## crs = sp::CRS("+proj=utm +zone=6 +datum=WGS84"))
@@ -27,7 +33,8 @@ write_rds(mesh, "data/mesh.rds")
 
 ## Create `sf` data frame with mesh vertex locations. Useful for plotting etc.
 mesh_pt <- map(seq_len(mesh$n), \(i) st_point(mesh$loc[i, 1:2])) |>
-  st_sfc(crs = st_crs("+proj=utm +zone=6 +datum=WGS84"))
+  ## st_sfc(crs = st_crs("+proj=utm +zone=6 +datum=WGS84"))
+  st_sfc(crs = crs)
 write_rds(mesh_pt, "data/mesh_pt.rds")
 
 ## Create a boundary polygon. Currently using a convex hull around the mesh
@@ -76,5 +83,6 @@ st_mesh_tri <- function(idx, mesh) {
 mesh_tri <- map(seq_len(nrow(mesh$graph$tv)),
                 st_mesh_tri,
                 mesh = mesh) |>
-  st_sfc(crs = st_crs("+proj=utm +zone=6 ellps=WGS84"))
+  ## st_sfc(crs = st_crs("+proj=utm +zone=6 ellps=WGS84"))
+  st_sfc(crs = crs)
 write_rds(mesh_tri, "data/mesh_tri.rds")
