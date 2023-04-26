@@ -39,6 +39,10 @@ bts_cols <- cols(
   HAUL = col_integer()
 )
 
+## The second and fourth tables have more than 50k rows. Column names are
+## duplicated at the 50,000th row causing parsing warnings. These are safe to
+## ignore as these rows are filtered out because they won't have valid
+## latitudes or longitudes.
 goa_bts <- map_df(
   file.path("rawdata", goa_bts_files),
   read_csv,
@@ -59,12 +63,14 @@ goa_hauls <- goa_bts |>
   distinct()
 write_rds(goa_hauls, "data/goa_hauls.rds")
 
+## Station 154-96 was sampled by two different vessels in 1990 at the same time,
+## so we need to join by vessel as well as station and date-time
 goa_arrowtooth <- goa_bts |>
   st_drop_geometry() |>
   filter(SCIENTIFIC == "Atheresthes stomias") |>
-  select(STATION, DATETIME, WTCPUE, NUMCPUE, COMMON, SCIENTIFIC) |>
+  select(STATION, DATETIME, VESSEL, WTCPUE, NUMCPUE, COMMON, SCIENTIFIC) |>
   right_join(goa_hauls,
-             by = c("STATION", "DATETIME")) |>
+             by = c("STATION", "DATETIME", "VESSEL")) |>
   mutate(WTCPUE = replace_na(WTCPUE, 0)) |>
   st_sf()
 write_rds(goa_arrowtooth, "data/goa_arrowtooth.rds")
