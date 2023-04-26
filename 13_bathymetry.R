@@ -19,21 +19,28 @@ crs <- st_crs(3338)
 ## Buffer distance: used to crop the raster down to the area that matters and to
 ## enlarge the area of the mesh triangles when extracting slope and aspect
 ## values, smoothing them somewhat over adjacent triangles.
-buffer_dist <- 10e3
+buffer_dist <- 25e3
 
 ## Get the bounding box of the mesh so that we have bathymetry covering all
 ## triangles in the mesh; use `round_out` to ensure we don't miss anything on
 ## the edges.
 mesh_pt <- read_rds("data/mesh_pt.rds")
+mesh_outerbound <- read_rds("data/mesh_outerbound.rds")
 ## Need to transform to 4326 (lat/long) here for `getNOAA.bathy`
-mesh_bbox <- st_bbox(st_transform(mesh_pt, st_crs(4326))) |>
+mesh_bbox <- mesh_outerbound |>
+  st_buffer(buffer_dist + 10e3) |>
+  st_transform(st_crs(4326)) |>
+  st_bbox() |>
   round_out(center = c(Inf, Inf, -Inf, -Inf))
 ## Warping the bathymetry raster below is cropping the southern end of the
 ## raster too much, losing part of the mesh. Need to go further south to cover
 ## the mesh after warping. The extra raster will be cropped later (before slope
 ## and aspect are computed), so this doesn't introduce a lot of extra
 ## computation.
-mesh_bbox[2] <- mesh_bbox[2] - 1
+mesh_bbox[1] <- mesh_bbox[1] - 5
+mesh_bbox[2] <- mesh_bbox[2] - 5
+mesh_bbox[3] <- mesh_bbox[3] + 5
+mesh_bbox[4] <- mesh_bbox[4] + 5
 
 ## Download bathymetry from NOAA and save for re-use. NOTE reducing the
 ## resolution here would be another way to smooth out small-scale variation.
@@ -86,11 +93,6 @@ mean_aspect <- function(asp, w = 1) {
   ys <- w * sin(asp)
   atan2(sum(ys), sum(xs))
 }
-
-## Convert to `terra` package objects. Need to use lat/long to get regular
-## raster for `terrain` function
-## mesh_tri_sv <- vect(st_transform(mesh_tri, st_crs(4326)))
-## goa_te <- rast(goa_st)
 
 ## Using st_transform to go from lat-long to UTM gives a curvilinear raster,
 ## which the `terrain` function can't handle. So instead resample the raster to
